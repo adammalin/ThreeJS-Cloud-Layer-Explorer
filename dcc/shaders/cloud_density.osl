@@ -1,0 +1,64 @@
+// Cloud Layer Explorer density reference.
+// This is an editable approximation of the WebGL field for OSL-capable renderers.
+// The browser's GLSL remains the visual source of truth.
+
+float cloud_fbm(point p, int octaves, float seed)
+{
+    float sum = 0.0;
+    float amplitude = 0.5;
+    float normalizer = 0.0;
+    point q = p + point(seed * 0.0071);
+    for (int i = 0; i < 8; i += 1) {
+        if (i >= octaves) break;
+        sum += noise("perlin", q) * amplitude;
+        normalizer += amplitude;
+        q = q * 2.01 + point(9.7, 13.1, 7.9);
+        amplitude *= 0.51;
+    }
+    return sum / max(normalizer, 0.001);
+}
+
+shader CloudLayerDensity(
+    point Coordinates = P,
+    float Time = 0.0,
+    float Slice = 0.0,
+    float LayerCount = 19.0,
+    float UnderLayers = 5.0,
+    float Scale = 1.42,
+    float VerticalCoherence = 1.6,
+    int Octaves = 5,
+    float Seed = 665.0,
+    float Warp = 0.64,
+    float LowClip = 0.36,
+    float HighClip = 0.55,
+    float ClipRamp = 0.14,
+    float Coverage = 0.05,
+    float Morph = 0.46,
+    float WindX = 0.14,
+    float WindZ = 0.05,
+    output float Density = 0.0,
+    output color PreviewColor = color(0.0)
+)
+{
+    float layer01 = (Slice + UnderLayers) / max(LayerCount - 1.0, 1.0);
+    point q = point(
+        Coordinates[0] * Scale + WindX * Time * 0.72,
+        layer01 * VerticalCoherence + Time * 0.085,
+        Coordinates[2] * Scale + WindZ * Time * 0.72
+    );
+
+    float warpA = cloud_fbm(q * 0.48 + point(4.1, -2.7, 7.8), Octaves, Seed);
+    float warpB = cloud_fbm(q * 0.48 + point(-5.3, 8.4, -1.9), Octaves, Seed);
+    q[0] += (warpA - 0.5) * Warp;
+    q[2] += (warpB - 0.5) * Warp;
+
+    float broad = cloud_fbm(q * 0.78, Octaves, Seed);
+    float detail = cloud_fbm(q * 1.64 + point(5.2, -3.1, 2.4), Octaves, Seed);
+    float cloud = broad * 0.70 + detail * 0.30 + Coverage;
+    cloud += sin(Time * 1.7) * 0.105 * Morph;
+
+    float low = clamp(LowClip + (layer01 - 0.5) * ClipRamp, 0.0, 0.96);
+    float high = clamp(HighClip + (layer01 - 0.5) * ClipRamp, low + 0.025, 1.0);
+    Density = smoothstep(low, high, clamp(cloud, 0.0, 1.0));
+    PreviewColor = color(Density);
+}

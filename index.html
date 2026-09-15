@@ -135,6 +135,14 @@
         <div class="actions"><button id="exportSettings" class="primary">Export JSON</button><button id="importSettings">Import JSON</button><input id="settingsFile" type="file" accept="application/json,.json" hidden></div>
         <p class="hint" id="fileStatus" aria-live="polite">Exports controls, lighting, animation time, and camera view.</p>
       </div>
+
+      <div class="section">
+        <div class="section-title">DCC cloud package</div>
+        <div class="row"><label for="exportDuration">Animation duration</label><output id="exportDurationOut"></output><div class="range"><input id="exportDuration" type="range" min="1" max="30" step="1" value="10"></div></div>
+        <div class="row"><label for="exportFps">Frame rate</label><select id="exportFps"><option value="24">24 fps</option><option value="30">30 fps</option><option value="60">60 fps</option></select></div>
+        <div class="actions"><button id="exportDccPackage" class="primary">Export DCC Package (.zip)</button></div>
+        <p class="hint" id="dccStatus" aria-live="polite">Includes Blender Cycles and Cinema 4D/Redshift reconstruction scripts.</p>
+      </div>
       <p class="hint">Drag to orbit · scroll to zoom · the field, clip ramp, and stack all update live.</p>
     </section>
     <div class="readout" id="readout" aria-live="polite"></div>
@@ -143,9 +151,10 @@
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js';
+    import JSZip from 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
 
     const app = document.querySelector('#app');
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -418,7 +427,7 @@
     lightMarker.add(lightCore, lightHalo);
     scene.add(lightMarker);
 
-    const defaults = { layers:14, underLayers:5, spacing:1.2, underInset:0.36, coherence:1.60, clipRamp:0.14, noiseType:'fbm', seed:665, scale:1.42, octaves:5, warp:0.64, lowClip:0.36, highClip:0.55, coverage:0.05, animate:true, phase:0, evolution:0.20, morph:0.46, windX:0.14, windY:0.05, lightEnabled:true, lightAzimuth:55, lightElevation:15, lightDistance:68, lightIntensity:1.70, ambientLight:0.34, lightColor:'daylight', lightOrbit:false, lightOrbitSpeed:0.16, showLight:true, opacity:0.86, shadow:0.72, guides:false };
+    const defaults = { layers:14, underLayers:5, spacing:1.2, underInset:0.36, coherence:1.60, clipRamp:0.14, noiseType:'fbm', seed:665, scale:1.42, octaves:5, warp:0.64, lowClip:0.36, highClip:0.55, coverage:0.05, animate:true, phase:0, evolution:0.20, morph:0.46, windX:0.14, windY:0.05, lightEnabled:true, lightAzimuth:55, lightElevation:15, lightDistance:68, lightIntensity:1.70, ambientLight:0.34, lightColor:'daylight', lightOrbit:false, lightOrbitSpeed:0.16, showLight:true, opacity:0.86, shadow:0.72, guides:false, exportDuration:10, exportFps:'24' };
     const storm = { layers:34, underLayers:4, spacing:0.48, underInset:0.18, coherence:1.8, clipRamp:0.20, noiseType:'turbulence', seed:431, scale:1.12, octaves:6, warp:0.72, lowClip:0.18, highClip:0.40, coverage:0.14, animate:true, phase:0, evolution:0.13, morph:0.30, windX:0.22, windY:0.04, lightEnabled:true, lightAzimuth:-58, lightElevation:24, lightDistance:92, lightIntensity:1.55, ambientLight:0.18, lightColor:'warm', lightOrbit:false, lightOrbitSpeed:0.12, showLight:true, opacity:0.92, shadow:0.92, guides:false };
     const values = { ...defaults };
     const mapType = { fbm:0, turbulence:1, worley:2, electric:3, ridged:4 };
@@ -428,6 +437,7 @@
     const outputs = {};
     document.querySelectorAll('output').forEach(el => outputs[el.id.replace('Out','')] = el);
     const fileStatus = document.querySelector('#fileStatus');
+    const dccStatus = document.querySelector('#dccStatus');
     let renderingBelow = null;
     let lastPhaseUi = 0;
 
@@ -442,6 +452,7 @@
       if (id === 'layers' || id === 'underLayers' || id === 'seed' || id === 'octaves') return String(Math.round(value));
       if (id === 'lightAzimuth' || id === 'lightElevation') return `${Math.round(value)}°`;
       if (id === 'lightDistance') return `${Math.round(value)}u`;
+      if (id === 'exportDuration') return `${Math.round(value)} s`;
       if (id === 'spacing' || id === 'scale' || id === 'coherence' || id === 'warp' || id === 'lightIntensity') return Number(value).toFixed(2);
       if (id === 'phase') return `${Number(value).toFixed(1)} s`;
       return `${(Number(value) * 100).toFixed(0)}%`;
@@ -562,6 +573,89 @@
       setTimeout(() => URL.revokeObjectURL(url), 0);
       fileStatus.textContent = 'Settings exported.';
     }
+    function saveBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+    async function fetchPackageAsset(path) {
+      const response = await fetch(new URL(path, window.location.href));
+      if (!response.ok) throw new Error(`Could not load package asset: ${path}`);
+      return response.text();
+    }
+    function capturePreview() {
+      renderer.render(scene, camera);
+      return new Promise((resolve, reject) => {
+        renderer.domElement.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not capture the WebGL preview.')), 'image/png');
+      });
+    }
+    async function exportDccPackage() {
+      const button = document.querySelector('#exportDccPackage');
+      button.disabled = true;
+      dccStatus.textContent = 'Building editable cloud package…';
+      try {
+        const payload = exportPayload();
+        payload.dccExport = {
+          packageVersion: 1,
+          mode: 'editable-procedural',
+          targets: ['Blender Cycles', 'Cinema 4D Redshift'],
+          durationSeconds: Number(values.exportDuration),
+          fps: Number(values.exportFps),
+          fidelity: 'parameter-faithful procedural approximation; not pixel-identical across renderers'
+        };
+        const [blenderScript, cinemaScript, oslSource, packageReadme, assetSpec, browserSource, preview] = await Promise.all([
+          fetchPackageAsset('dcc/blender/build_cloud.py'),
+          fetchPackageAsset('dcc/cinema4d/build_cloud.py'),
+          fetchPackageAsset('dcc/shaders/cloud_density.osl'),
+          fetchPackageAsset('dcc/README.md'),
+          fetchPackageAsset('asset.spec.json'),
+          fetchPackageAsset('index.html'),
+          capturePreview()
+        ]);
+        const manifest = {
+          format: 'cloudpack',
+          version: 1,
+          generator: 'ThreeJS Cloud Layer Explorer',
+          generatedAt: new Date().toISOString(),
+          sourceOfTruth: 'cloud-settings.json',
+          mode: payload.dccExport.mode,
+          targets: payload.dccExport.targets,
+          files: [
+            'cloud-settings.json', 'manifest.json', 'README.md', 'asset.spec.json',
+            'preview/browser-preview.png', 'browser-source/index.html',
+            'blender/build_cloud.py', 'cinema4d/build_cloud.py', 'shaders/cloud_density.osl'
+          ],
+          limitations: [
+            'Native renderers use their own noise and transparency implementations.',
+            'The editable reconstruction is not expected to be pixel-identical to WebGL.',
+            'OpenVDB baking is not included in cloudpack version 1.'
+          ]
+        };
+        const zip = new JSZip();
+        zip.file('cloud-settings.json', JSON.stringify(payload, null, 2));
+        zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+        zip.file('README.md', packageReadme);
+        zip.file('asset.spec.json', assetSpec);
+        zip.file('preview/browser-preview.png', preview);
+        zip.file('browser-source/index.html', browserSource);
+        zip.file('blender/build_cloud.py', blenderScript);
+        zip.file('cinema4d/build_cloud.py', cinemaScript);
+        zip.file('shaders/cloud_density.osl', oslSource);
+        const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{ level:6 } });
+        const stamp = payload.savedAt.replace(/[:.]/g, '-');
+        saveBlob(blob, `cloud-layer-${stamp}.cloudpack.zip`);
+        dccStatus.textContent = `Package exported · ${values.exportDuration}s at ${values.exportFps} fps.`;
+      } catch (error) {
+        dccStatus.textContent = `Package export failed: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
     function safeNumber(value, input) {
       const number = Number(value);
       if (!Number.isFinite(number)) return null;
@@ -602,6 +696,7 @@
     document.querySelector('#stormPreset').addEventListener('click', () => applyPreset(storm));
     document.querySelector('#resetView').addEventListener('click', resetCamera);
     document.querySelector('#exportSettings').addEventListener('click', exportSettings);
+    document.querySelector('#exportDccPackage').addEventListener('click', exportDccPackage);
     document.querySelector('#importSettings').addEventListener('click', () => document.querySelector('#settingsFile').click());
     document.querySelector('#settingsFile').addEventListener('change', async event => {
       const file = event.target.files[0];

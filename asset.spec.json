@@ -1,11 +1,30 @@
 {
   "asset_id": "cloud-layer-explorer",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "route": "deterministic procedural",
   "source_of_truth": "index.html shader and control state",
   "intended_use": "browser visualizer for evaluating stacked alpha-masked cloud planes",
   "target": "WebGL2-capable desktop browser",
   "units": "scene units; starting dimensions mirror the C4D demo approximately",
+  "export_contract": {
+    "format": "cloudpack.zip",
+    "source_of_truth": "cloud-settings.json",
+    "targets": [
+      "Blender Cycles",
+      "Cinema 4D Redshift"
+    ],
+    "contents": [
+      "versioned settings and camera state",
+      "animation duration and frame rate",
+      "browser preview PNG",
+      "shared OSL density reference",
+      "Blender native reconstruction script",
+      "Cinema 4D native reconstruction script",
+      "package manifest and instructions"
+    ],
+    "native_scene_policy": "The DCC scripts create and save native .blend and .c4d files inside the extracted package; browser code does not fabricate proprietary scene binaries.",
+    "fidelity": "Editable procedural approximation; target renderers light the reconstructed cloud natively and are not expected to be pixel-identical to WebGL."
+  },
   "defaults": {
     "layer_count": 14,
     "lower_rounding_layers": 5,
@@ -32,7 +51,8 @@
     "The C4D Alpha Noise setup is represented with GLSL procedural noise rather than a byte-for-byte C4D shader clone.",
     "All layers share one evolving 3D field and one time source so the cloud develops coherently.",
     "Lower rounding layers are signed negative-height slices that contract in footprint and opacity toward the bottom.",
-    "Lighting is a density-aware shader approximation with one movable point source, not physical multiple scattering."
+    "Lighting is a density-aware shader approximation with one movable point source, not physical multiple scattering.",
+    "The first DCC export route prioritizes editable procedural scenes over baked pixel identity."
   ],
   "validation": [
     "Controls update the visible cloud without page reload.",
@@ -43,7 +63,15 @@
     "Light azimuth, elevation, distance, intensity, ambient fill, color, visibility, and orbit state are saved with the settings.",
     "Moving the light above, beside, and below the cloud changes diffuse shading, density self-shadowing, and edge scattering.",
     "Lower rounding layers visibly contract beneath the main stack without exceeding the 64-instance budget.",
-    "The visualizer remains usable at narrow browser widths."
+    "The visualizer remains usable at narrow browser widths.",
+    "A generated cloudpack can be opened as a ZIP and contains parseable settings, scripts, OSL source, preview, manifest, and instructions."
   ],
-  "status": "prototype"
+  "validation_evidence": {
+    "browser_export": "PASS - generated package passed unzip integrity and content checks",
+    "blender_cycles": "PASS - Blender 5.1.2 rebuilt 19 editable layers, 19 materials, 95 drivers, one package camera, one package light, and a 240-frame 24 fps Cycles scene; a four-sample frame rendered successfully",
+    "animation": "PASS - material wind, 4D noise time, and build/thin thresholds evaluated to different values at frames 1, 120, and 240",
+    "cinema4d_redshift": "HOLD - script syntax and package lineage pass, but the exact script has not yet completed a native Cinema 4D 2026 runtime rebuild",
+    "warning": "DCC noise is an editable procedural approximation and is not pixel-identical to the browser GLSL"
+  },
+  "status": "prototype-pass-with-warnings"
 }
