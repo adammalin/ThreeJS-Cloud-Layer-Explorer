@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cloud Layer Explorer</title>
+  <script type="importmap">
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"}}
+  </script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111d;
+      --panel: rgba(10, 24, 39, 0.88);
+      --panel-2: rgba(18, 39, 60, 0.78);
+      --line: rgba(166, 206, 239, 0.2);
+      --text: #eaf5ff;
+      --muted: #9bb3c8;
+      --accent: #8ed6ff;
+      --accent-2: #ffd58a;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font: 14px/1.35 Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+    body { overflow: hidden; }
+    #app {
+      height: 100vh; position: relative;
+      background:
+        radial-gradient(circle at 76% 18%, rgba(117, 164, 199, .15), transparent 34%),
+        linear-gradient(180deg, #102235 0%, #08131f 54%, #03080e 100%);
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .panel {
+      position: absolute; top: 18px; left: 18px; width: min(330px, calc(100vw - 36px));
+      max-height: calc(100vh - 36px); overflow: auto; padding: 16px;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 16px 50px rgba(0,0,0,.3); backdrop-filter: blur(16px);
+    }
+    h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .01em; }
+    .sub { margin: 3px 0 14px; color: var(--muted); font-size: 12px; }
+    .section { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--line); }
+    .section:first-of-type { padding-top: 0; margin-top: 0; border-top: 0; }
+    .section-title { margin-bottom: 8px; color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: .11em; }
+    .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; margin: 8px 0; }
+    label { color: var(--muted); }
+    output { min-width: 54px; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+    input[type="range"], select { width: 100%; accent-color: var(--accent); }
+    select, button {
+      color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+      border-radius: 7px; padding: 7px 9px; font: inherit;
+    }
+    select { grid-column: 1 / -1; }
+    .range { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.primary { color: #072033; background: var(--accent); border-color: var(--accent); }
+    .check { display: flex; gap: 8px; align-items: center; color: var(--text); }
+    .hint { margin-top: 12px; color: var(--muted); font-size: 11px; }
+    .readout {
+      position: absolute; right: 18px; bottom: 18px; padding: 8px 11px;
+      color: var(--muted); background: rgba(7,17,29,.62); border: 1px solid var(--line);
+      border-radius: 8px; font-size: 12px; font-variant-numeric: tabular-nums;
+    }
+    @media (max-width: 620px) {
+      body { overflow: auto; }
+      #app { min-height: 720px; height: 100vh; }
+      .panel { max-height: calc(100vh - 36px); }
+      .readout { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main id="app" aria-label="Cloud layer explorer">
+    <section class="panel" aria-label="Cloud controls">
+      <h1>Cloud Layer Explorer</h1>
+      <p class="sub">Stacked alpha planes · underside volume study</p>
+
+      <div class="section">
+        <div class="section-title">Stack</div>
+        <div class="row"><label for="layers">Main layers</label><output id="layersOut"></output><div class="range"><input id="layers" type="range" min="2" max="52" step="1" value="14"></div></div>
+        <div class="row"><label for="underLayers">Lower rounding layers</label><output id="underLayersOut"></output><div class="range"><input id="underLayers" type="range" min="0" max="12" step="1" value="5"></div></div>
+        <div class="row"><label for="spacing">Layer spacing</label><output id="spacingOut"></output><div class="range"><input id="spacing" type="range" min="0.15" max="4" step="0.01" value="1.2"></div></div>
+        <div class="row"><label for="underInset">Lower edge inset</label><output id="underInsetOut"></output><div class="range"><input id="underInset" type="range" min="0" max="0.6" step="0.01" value="0.36"></div></div>
+        <div class="row"><label for="coherence">Vertical coherence</label><output id="coherenceOut"></output><div class="range"><input id="coherence" type="range" min="0.25" max="4" step="0.01" value="1.6"></div></div>
+        <div class="row"><label for="clipRamp">Clip ramp through stack</label><output id="clipRampOut"></output><div class="range"><input id="clipRamp" type="range" min="-0.45" max="0.45" step="0.01" value="0.18"></div></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Noise field</div>
+        <div class="row"><label for="noiseType">Pattern</label><select id="noiseType"><option value="fbm">FBM / billowed</option><option value="turbulence">Turbulence</option><option value="worley">Worley cells</option><option value="electric">Electric</option><option value="ridged">Ridged</option></select></div>
+        <div class="row"><label for="seed">Seed</label><output id="seedOut"></output><div class="range"><input id="seed" type="range" min="1" max="999" step="1" value="665"></div></div>
+        <div class="row"><label for="scale">Noise scale</label><output id="scaleOut"></output><div class="range"><input id="scale" type="range" min="0.35" max="5" step="0.01" value="1.42"></div></div>
+        <div class="row"><label for="octaves">Octaves</label><output id="octavesOut"></output><div class="range"><input id="octaves" type="range" min="1" max="8" step="1" value="5"></div></div>
+        <div class="row"><label for="warp">Domain warp</label><output id="warpOut"></output><div class="range"><input id="warp" type="range" min="0" max="1.5" step="0.01" value="0.64"></div></div>
+        <div class="row"><label for="lowClip">Low clip</label><output id="lowClipOut"></output><div class="range"><input id="lowClip" type="range" min="0" max="0.95" step="0.01" value="0.36"></div></div>
+        <div class="row"><label for="highClip">High clip</label><output id="highClipOut"></output><div class="range"><input id="highClip" type="range" min="0.05" max="1" step="0.01" value="0.55"></div></div>
+        <div class="row"><label for="coverage">Formation density</label><output id="coverageOut"></output><div class="range"><input id="coverage" type="range" min="-0.25" max="0.25" step="0.01" value="0.05"></div></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Evolution</div>
+        <label class="check"><input id="animate" type="checkbox" checked> Animate shared field</label>
+        <div class="row"><label for="phase">Time</label><output id="phaseOut"></output><div class="range"><input id="phase" type="range" min="0" max="60" step="0.01" value="0"></div></div>
+        <div class="row"><label for="evolution">Evolution speed</label><output id="evolutionOut"></output><div class="range"><input id="evolution" type="range" min="0" max="1" step="0.01" value="0.2"></div></div>
+        <div class="row"><label for="morph">Build / thin cycle</label><output id="morphOut"></output><div class="range"><input id="morph" type="range" min="0" max="1" step="0.01" value="0.46"></div></div>
+        <div class="row"><label for="windX">Wind X</label><output id="windXOut"></output><div class="range"><input id="windX" type="range" min="-1" max="1" step="0.01" value="0.14"></div></div>
+        <div class="row"><label for="windY">Wind Z</label><output id="windYOut"></output><div class="range"><input id="windY" type="range" min="-1" max="1" step="0.01" value="0.05"></div></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Lighting</div>
+        <label class="check"><input id="lightEnabled" type="checkbox" checked> Enable movable light</label>
+        <div class="row"><label for="lightAzimuth">Azimuth</label><output id="lightAzimuthOut"></output><div class="range"><input id="lightAzimuth" type="range" min="-180" max="180" step="1" value="55"></div></div>
+        <div class="row"><label for="lightElevation">Elevation</label><output id="lightElevationOut"></output><div class="range"><input id="lightElevation" type="range" min="-60" max="90" step="1" value="15"></div></div>
+        <div class="row"><label for="lightDistance">Distance</label><output id="lightDistanceOut"></output><div class="range"><input id="lightDistance" type="range" min="18" max="140" step="1" value="68"></div></div>
+        <div class="row"><label for="lightIntensity">Intensity</label><output id="lightIntensityOut"></output><div class="range"><input id="lightIntensity" type="range" min="0" max="3" step="0.01" value="1.70"></div></div>
+        <div class="row"><label for="ambientLight">Ambient fill</label><output id="ambientLightOut"></output><div class="range"><input id="ambientLight" type="range" min="0" max="1" step="0.01" value="0.34"></div></div>
+        <div class="row"><label for="lightColor">Light color</label><select id="lightColor"><option value="daylight">Daylight</option><option value="warm">Warm sunset</option><option value="moonlight">Cool moonlight</option></select></div>
+        <label class="check"><input id="lightOrbit" type="checkbox"> Orbit light automatically</label>
+        <div class="row"><label for="lightOrbitSpeed">Orbit speed</label><output id="lightOrbitSpeedOut"></output><div class="range"><input id="lightOrbitSpeed" type="range" min="-1" max="1" step="0.01" value="0.16"></div></div>
+        <label class="check"><input id="showLight" type="checkbox" checked> Show light marker</label>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Display</div>
+        <div class="row"><label for="opacity">Opacity</label><output id="opacityOut"></output><div class="range"><input id="opacity" type="range" min="0.1" max="1" step="0.01" value="0.86"></div></div>
+        <div class="row"><label for="shadow">Underside depth</label><output id="shadowOut"></output><div class="range"><input id="shadow" type="range" min="0" max="1" step="0.01" value="0.72"></div></div>
+        <label class="check"><input id="guides" type="checkbox"> Show layer guides</label>
+        <div class="actions" style="margin-top:10px"><button id="cumulusPreset" class="primary">Cumulus</button><button id="stormPreset">Storm deck</button><button id="resetView">Reset view</button></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Settings file</div>
+        <div class="actions"><button id="exportSettings" class="primary">Export JSON</button><button id="importSettings">Import JSON</button><input id="settingsFile" type="file" accept="application/json,.json" hidden></div>
+        <p class="hint" id="fileStatus" aria-live="polite">Exports controls, lighting, animation time, and camera view.</p>
+      </div>
+      <p class="hint">Drag to orbit · scroll to zoom · the field, clip ramp, and stack all update live.</p>
+    </section>
+    <div class="readout" id="readout" aria-live="polite"></div>
+  </main>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js';
+
+    const app = document.querySelector('#app');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setClearColor(0x000000, 0);
+    app.prepend(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 500);
+    camera.position.set(40, -36, 74);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 9, 0);
+    controls.enableDamping = true;
+    controls.minDistance = 12;
+    controls.maxDistance = 120;
+
+    const maxLayers = 64;
+    const geometry = new THREE.PlaneGeometry(82, 82, 1, 1);
+    const layerValues = new Float32Array(maxLayers);
+    for (let i = 0; i < maxLayers; i++) layerValues[i] = i;
+    geometry.setAttribute('aLayer', new THREE.InstancedBufferAttribute(layerValues, 1));
+
+    const uniforms = {
+      uTime: { value: 0 }, uLayerCount: { value: 25 }, uUnderLayers: { value: 5 }, uSpacing: { value: 0.9 }, uUnderInset: { value: 0.28 }, uCoherence: { value: 1.35 },
+      uNoiseType: { value: 0 }, uSeed: { value: 665 }, uScale: { value: 1.55 }, uOctaves: { value: 5 },
+      uLowClip: { value: 0.3 }, uHighClip: { value: 0.6 }, uClipRamp: { value: 0.24 },
+      uEvolution: { value: 0.22 }, uMorph: { value: 0.65 }, uWind: { value: new THREE.Vector2(0.18, 0.08) },
+      uWarp: { value: 0.58 }, uCoverage: { value: 0.04 }, uOpacity: { value: 0.5 }, uShadow: { value: 0.68 },
+      uLightEnabled: { value: 1 }, uLightPosition: { value: new THREE.Vector3(54, 22, 38) },
+      uLightColor: { value: new THREE.Color(0xf4f8ff) }, uLightIntensity: { value: 1.70 }, uAmbientLight: { value: 0.34 }
+    };
+
+    const material = new THREE.ShaderMaterial({
+      uniforms,
+      transparent: true,
+      premultipliedAlpha: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.NormalBlending,
+      vertexShader: `
+        attribute float aLayer;
+        varying vec2 vUv;
+        varying float vLayer;
+        varying vec3 vWorldPosition;
+        uniform float uSpacing;
+        uniform float uUnderLayers;
+        uniform float uUnderInset;
+        uniform float uMorph;
+        uniform float uTime;
+        uniform float uEvolution;
+        void main() {
+          vUv = uv;
+          vLayer = aLayer;
+          float lowerDepth = clamp(-aLayer / max(uUnderLayers, 1.0), 0.0, 1.0);
+          float lowerScale = 1.0 - uUnderInset * pow(lowerDepth, 0.72);
+          vec3 p = vec3(position.x * lowerScale, aLayer * uSpacing, position.y * lowerScale);
+          float breathe = sin(uTime * uEvolution * 2.4 + aLayer * 0.07) * 0.035 * uMorph;
+          p.y += breathe;
+          vWorldPosition = (modelMatrix * vec4(p, 1.0)).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        }
+      `,
+      fragmentShader: `
+        precision highp float;
+        varying vec2 vUv;
+        varying float vLayer;
+        varying vec3 vWorldPosition;
+        uniform float uTime;
+        uniform float uLayerCount;
+        uniform float uUnderLayers;
+        uniform float uCoherence;
+        uniform int uNoiseType;
+        uniform float uSeed;
+        uniform float uScale;
+        uniform float uOctaves;
+        uniform float uLowClip;
+        uniform float uHighClip;
+        uniform float uClipRamp;
+        uniform float uEvolution;
+        uniform float uMorph;
+        uniform vec2 uWind;
+        uniform float uWarp;
+        uniform float uCoverage;
+        uniform float uOpacity;
+        uniform float uShadow;
+        uniform float uLightEnabled;
+        uniform vec3 uLightPosition;
+        uniform vec3 uLightColor;
+        uniform float uLightIntensity;
+        uniform float uAmbientLight;
+
+        float hash21(vec2 p) {
+          p += uSeed * 0.0137;
+          p = fract(p * vec2(123.34, 456.21));
+          p += dot(p, p + 45.32);
+          return fract(p.x * p.y);
+        }
+        float hash31(vec3 p) {
+          p += uSeed * 0.0071;
+          p = fract(p * vec3(0.1031, 0.11369, 0.13787));
+          p += dot(p, p.yzx + 19.19);
+          return fract((p.x + p.y) * p.z);
+        }
+        float valueNoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash21(i), b = hash21(i + vec2(1.0, 0.0));
+          float c = hash21(i + vec2(0.0, 1.0)), d = hash21(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+        float valueNoise3(vec3 p) {
+          vec3 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float n000 = hash31(i);
+          float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+          float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+          float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+          float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+          float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+          float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+          float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+          float nx00 = mix(n000, n100, f.x);
+          float nx10 = mix(n010, n110, f.x);
+          float nx01 = mix(n001, n101, f.x);
+          float nx11 = mix(n011, n111, f.x);
+          return mix(mix(nx00, nx10, f.y), mix(nx01, nx11, f.y), f.z);
+        }
+        float fbm2(vec2 p) {
+          float sum = 0.0, amp = 0.5, norm = 0.0;
+          for (int i = 0; i < 8; i++) {
+            if (float(i) >= uOctaves) break;
+            sum += valueNoise(p) * amp;
+            norm += amp;
+            p = p * 2.03 + vec2(11.7, 7.3);
+            amp *= 0.52;
+          }
+          return sum / max(norm, 0.001);
+        }
+        float fbm3(vec3 p) {
+          float sum = 0.0, amp = 0.5, norm = 0.0;
+          for (int i = 0; i < 8; i++) {
+            if (float(i) >= uOctaves) break;
+            sum += valueNoise3(p) * amp;
+            norm += amp;
+            p = p * 2.01 + vec3(9.7, 13.1, 7.9);
+            amp *= 0.51;
+          }
+          return sum / max(norm, 0.001);
+        }
+        float worley(vec2 p) {
+          vec2 cell = floor(p), f = fract(p);
+          float nearest = 1.0;
+          for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+            vec2 offset = vec2(float(x), float(y));
+            vec2 point = vec2(hash21(cell + offset), hash21(cell + offset + 19.17));
+            nearest = min(nearest, length(offset + point - f));
+          }
+          return 1.0 - smoothstep(0.02, 0.95, nearest);
+        }
+        float field3(vec3 p) {
+          float base = fbm3(p);
+          if (uNoiseType == 1) return base * 0.62 + abs(fbm3(p * 1.74 + 5.7) - 0.5) * 0.76;
+          if (uNoiseType == 2) return worley(p.xz * 1.2 + p.y * 0.16) * 0.58 + base * 0.42;
+          if (uNoiseType == 3) {
+            float streak = abs(sin(p.x * 2.0 + base * 5.3) * sin(p.z * 1.7 - base * 4.5));
+            return base * 0.56 + streak * 0.44;
+          }
+          if (uNoiseType == 4) return 1.0 - abs(base * 2.0 - 1.0);
+          return base * 0.78 + fbm3(p * 0.47 + vec3(3.0, 8.0, -4.0)) * 0.22;
+        }
+        float densityField(vec3 q, vec2 centered, float layer01, float t) {
+          float warpA = fbm3(q * 0.48 + vec3(4.1, -2.7, 7.8));
+          float warpB = fbm3(q * 0.48 + vec3(-5.3, 8.4, -1.9));
+          q.xz += (vec2(warpA, warpB) - 0.5) * uWarp;
+
+          float broad = field3(q * 0.78);
+          float detail = field3(q * 1.64 + vec3(5.2, -3.1, 2.4));
+          float macro = fbm2(centered * 0.7 + uWind * t * 0.08 + vec2(uSeed * 0.001));
+          float formation = smoothstep(0.38, 0.69, macro + layer01 * 0.08);
+          float density = (broad * 0.62 + detail * 0.26) * mix(0.28, 1.08, formation) - 0.045;
+          density -= (1.0 - detail) * 0.075;
+
+          float vertical = 1.0 - pow(abs(layer01 * 2.0 - 1.0), 1.55);
+          density -= (1.0 - vertical) * 0.14;
+          density += uCoverage;
+
+          float radius = length(centered * vec2(0.72, 1.03));
+          density -= smoothstep(0.63, 1.02, radius) * 0.48;
+          return density;
+        }
+        void main() {
+          float t = uTime * uEvolution;
+          vec2 centered = (vUv - 0.5) * 2.0;
+          float layer01 = (vLayer + uUnderLayers) / max(uLayerCount - 1.0, 1.0);
+          float lowerDepth = clamp(-vLayer / max(uUnderLayers, 1.0), 0.0, 1.0);
+          vec2 drift = uWind * t * 0.72;
+          vec3 q = vec3(centered.x * uScale + drift.x, layer01 * uCoherence + t * 0.085, centered.y * uScale + drift.y);
+          float cloud = densityField(q, centered, layer01, t);
+          cloud += sin(t * 1.7) * 0.105 * uMorph;
+          cloud += (fbm3(q * 0.31 + vec3(t * 0.035)) - 0.5) * 0.12 * uMorph;
+          cloud = clamp(cloud, 0.0, 1.0);
+
+          float lowerLobe = fbm2(centered * 1.18 + vec2(uSeed * 0.003, -uSeed * 0.0017));
+          float lowerTaper = pow(lowerDepth, 1.55) * mix(0.24, 0.045, smoothstep(0.28, 0.76, lowerLobe));
+          float low = clamp(uLowClip + (layer01 - 0.5) * uClipRamp + lowerTaper, 0.0, 0.96);
+          float high = clamp(uHighClip + (layer01 - 0.5) * uClipRamp + lowerTaper * 0.55, low + 0.025, 1.0);
+          float body = smoothstep(low, high, cloud);
+          float edgeNoise = fbm2(centered * 0.92 + vec2(-3.4, 6.7));
+          float edgeRadius = length(centered * vec2(0.74, 1.02)) + (0.5 - edgeNoise) * 0.22;
+          float edgeFade = 1.0 - smoothstep(0.76, 1.03, edgeRadius);
+          float layerNormalization = clamp(6.0 / max(uLayerCount, 1.0), 0.08, 0.82);
+          float alpha = body * edgeFade * uOpacity * layerNormalization;
+          if (alpha < 0.006) discard;
+
+          vec3 lightDirection = normalize(uLightPosition - vWorldPosition);
+          vec3 fieldLightDirection = normalize(vec3(lightDirection.x, lightDirection.y * 0.72, lightDirection.z));
+          float lightSample = densityField(q + fieldLightDirection * 0.19, centered, layer01, t);
+          float transmittance = clamp(0.92 - max(lightSample - cloud, 0.0) * 7.0, 0.10, 1.0);
+          float internalDetail = fbm3(q * 2.15 + vec3(7.0, 1.0, -4.0));
+          vec2 normalNoise = vec2(
+            valueNoise3(q * 2.4 + vec3(0.08, 0.0, 0.0)) - valueNoise3(q * 2.4 - vec3(0.08, 0.0, 0.0)),
+            valueNoise3(q * 2.4 + vec3(0.0, 0.0, 0.08)) - valueNoise3(q * 2.4 - vec3(0.0, 0.0, 0.08))
+          );
+          float normalY = mix(-0.82, 0.66, smoothstep(0.08, 0.92, layer01));
+          vec3 pseudoNormal = normalize(vec3(-centered.x * 0.34 - normalNoise.x * 3.2, normalY, -centered.y * 0.34 - normalNoise.y * 3.2));
+          float diffuse = max(dot(pseudoNormal, lightDirection), 0.0);
+          vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+          float forwardScatter = pow(max(dot(viewDirection, -lightDirection), 0.0), 7.0);
+          float edgeBand = smoothstep(0.02, 0.40, body) * (1.0 - smoothstep(0.48, 0.94, body));
+          float directLight = (0.10 + diffuse * 0.90) * mix(1.0, transmittance, uShadow) * uLightIntensity;
+          float ambient = uAmbientLight * mix(0.68, 1.0, layer01);
+          vec3 albedo = mix(vec3(0.21, 0.30, 0.40), vec3(0.88, 0.94, 0.98), pow(layer01, 0.70));
+          float detailLight = mix(0.78, 1.14, internalDetail);
+          vec3 litColor = albedo * ambient * mix(0.88, 1.08, internalDetail);
+          litColor += albedo * uLightColor * directLight * detailLight;
+          litColor += uLightColor * forwardScatter * edgeBand * uLightIntensity * 0.72;
+          vec3 unlitColor = albedo * mix(0.42, 0.92, layer01) * mix(0.72, 1.16, internalDetail);
+          vec3 color = mix(unlitColor, litColor, uLightEnabled);
+          gl_FragColor = vec4(color * alpha, alpha);
+        }
+      `
+    });
+    const cloud = new THREE.InstancedMesh(geometry, material, maxLayers);
+    const identity = new THREE.Matrix4();
+    for (let i = 0; i < maxLayers; i++) cloud.setMatrixAt(i, identity);
+    cloud.instanceMatrix.needsUpdate = true;
+    cloud.count = uniforms.uLayerCount.value;
+    cloud.frustumCulled = false;
+    cloud.renderOrder = 2;
+    scene.add(cloud);
+
+    const guideMaterial = new THREE.LineBasicMaterial({ color: 0x6e9dbc, transparent: true, opacity: 0.22 });
+    const guideGroup = new THREE.Group();
+    for (let i = 0; i < maxLayers; i++) {
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(82, 82)), guideMaterial);
+      edges.rotation.x = Math.PI / 2;
+      guideGroup.add(edges);
+    }
+    guideGroup.visible = false;
+    scene.add(guideGroup);
+
+    const lightMarker = new THREE.Group();
+    const lightCore = new THREE.Mesh(
+      new THREE.SphereGeometry(1.25, 20, 12),
+      new THREE.MeshBasicMaterial({ color: 0xf4f8ff, toneMapped: false })
+    );
+    const lightHalo = new THREE.Mesh(
+      new THREE.SphereGeometry(2.15, 20, 12),
+      new THREE.MeshBasicMaterial({ color: 0xf4f8ff, transparent: true, opacity: 0.14, depthWrite: false, toneMapped: false })
+    );
+    lightMarker.add(lightCore, lightHalo);
+    scene.add(lightMarker);
+
+    const defaults = { layers:14, underLayers:5, spacing:1.2, underInset:0.36, coherence:1.60, clipRamp:0.14, noiseType:'fbm', seed:665, scale:1.42, octaves:5, warp:0.64, lowClip:0.36, highClip:0.55, coverage:0.05, animate:true, phase:0, evolution:0.20, morph:0.46, windX:0.14, windY:0.05, lightEnabled:true, lightAzimuth:55, lightElevation:15, lightDistance:68, lightIntensity:1.70, ambientLight:0.34, lightColor:'daylight', lightOrbit:false, lightOrbitSpeed:0.16, showLight:true, opacity:0.86, shadow:0.72, guides:false };
+    const storm = { layers:34, underLayers:4, spacing:0.48, underInset:0.18, coherence:1.8, clipRamp:0.20, noiseType:'turbulence', seed:431, scale:1.12, octaves:6, warp:0.72, lowClip:0.18, highClip:0.40, coverage:0.14, animate:true, phase:0, evolution:0.13, morph:0.30, windX:0.22, windY:0.04, lightEnabled:true, lightAzimuth:-58, lightElevation:24, lightDistance:92, lightIntensity:1.55, ambientLight:0.18, lightColor:'warm', lightOrbit:false, lightOrbitSpeed:0.12, showLight:true, opacity:0.92, shadow:0.92, guides:false };
+    const values = { ...defaults };
+    const mapType = { fbm:0, turbulence:1, worley:2, electric:3, ridged:4 };
+    const lightColors = { daylight:0xf4f8ff, warm:0xffe0b2, moonlight:0xb8d2ff };
+    const controlsById = {};
+    document.querySelectorAll('input:not([type="file"]), select').forEach(el => controlsById[el.id] = el);
+    const outputs = {};
+    document.querySelectorAll('output').forEach(el => outputs[el.id.replace('Out','')] = el);
+    const fileStatus = document.querySelector('#fileStatus');
+    let renderingBelow = null;
+    let lastPhaseUi = 0;
+
+    function setValue(id, value) {
+      values[id] = value;
+      const el = controlsById[id];
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = Boolean(value);
+      else el.value = value;
+    }
+    function format(id, value) {
+      if (id === 'layers' || id === 'underLayers' || id === 'seed' || id === 'octaves') return String(Math.round(value));
+      if (id === 'lightAzimuth' || id === 'lightElevation') return `${Math.round(value)}°`;
+      if (id === 'lightDistance') return `${Math.round(value)}u`;
+      if (id === 'spacing' || id === 'scale' || id === 'coherence' || id === 'warp' || id === 'lightIntensity') return Number(value).toFixed(2);
+      if (id === 'phase') return `${Number(value).toFixed(1)} s`;
+      return `${(Number(value) * 100).toFixed(0)}%`;
+    }
+    function totalLayers() { return values.layers + values.underLayers; }
+    function cloudCenterY() { return ((values.layers - 1 - values.underLayers) * values.spacing) * 0.5; }
+    function updateLight() {
+      const azimuth = THREE.MathUtils.degToRad(values.lightAzimuth);
+      const elevation = THREE.MathUtils.degToRad(values.lightElevation);
+      const radius = values.lightDistance;
+      const centerY = cloudCenterY();
+      lightMarker.position.set(
+        Math.sin(azimuth) * Math.cos(elevation) * radius,
+        centerY + Math.sin(elevation) * radius,
+        Math.cos(azimuth) * Math.cos(elevation) * radius
+      );
+      const color = lightColors[values.lightColor] ?? lightColors.daylight;
+      lightCore.material.color.setHex(color);
+      lightHalo.material.color.setHex(color);
+      lightMarker.visible = values.showLight && values.lightEnabled;
+      uniforms.uLightEnabled.value = values.lightEnabled ? 1 : 0;
+      uniforms.uLightPosition.value.copy(lightMarker.position);
+      uniforms.uLightColor.value.setHex(color).convertSRGBToLinear();
+      uniforms.uLightIntensity.value = values.lightIntensity;
+      uniforms.uAmbientLight.value = values.ambientLight;
+    }
+    function updateLayerOrder(force = false) {
+      const total = totalLayers();
+      const below = camera.position.y < cloudCenterY();
+      if (!force && below === renderingBelow) return;
+      renderingBelow = below;
+      for (let i = 0; i < maxLayers; i++) {
+        if (i >= total) layerValues[i] = 0;
+        else layerValues[i] = below ? values.layers - 1 - i : i - values.underLayers;
+      }
+      geometry.attributes.aLayer.needsUpdate = true;
+    }
+    function updateGuides() {
+      const total = totalLayers();
+      for (let i = 0; i < maxLayers; i++) {
+        const guide = guideGroup.children[i];
+        guide.visible = i < total;
+        if (i >= total) continue;
+        const slice = i - values.underLayers;
+        const lowerDepth = values.underLayers > 0 ? Math.max(-slice / values.underLayers, 0) : 0;
+        const lowerScale = 1 - values.underInset * Math.pow(lowerDepth, 0.72);
+        guide.position.y = slice * values.spacing;
+        guide.scale.set(lowerScale, lowerScale, lowerScale);
+      }
+    }
+    function resetCamera() {
+      const center = cloudCenterY();
+      camera.position.set(40, center - 42, 74);
+      controls.target.set(0, center, 0);
+      controls.update();
+      updateLayerOrder(true);
+    }
+    function syncFromInputs() {
+      Object.keys(controlsById).forEach(id => {
+        const el = controlsById[id];
+        values[id] = el.type === 'checkbox' ? el.checked : (el.type === 'select-one' ? el.value : Number(el.value));
+        if (outputs[id]) outputs[id].textContent = el.type === 'checkbox' || el.type === 'select-one' ? '' : format(id, values[id]);
+      });
+      uniforms.uLayerCount.value = totalLayers();
+      uniforms.uUnderLayers.value = values.underLayers;
+      uniforms.uSpacing.value = values.spacing;
+      uniforms.uUnderInset.value = values.underInset;
+      uniforms.uCoherence.value = values.coherence;
+      uniforms.uNoiseType.value = mapType[values.noiseType];
+      uniforms.uSeed.value = values.seed;
+      uniforms.uScale.value = values.scale;
+      uniforms.uOctaves.value = values.octaves;
+      uniforms.uWarp.value = values.warp;
+      uniforms.uLowClip.value = Math.min(values.lowClip, values.highClip - 0.03);
+      uniforms.uHighClip.value = Math.max(values.highClip, values.lowClip + 0.03);
+      uniforms.uClipRamp.value = values.clipRamp;
+      uniforms.uCoverage.value = values.coverage;
+      uniforms.uEvolution.value = values.evolution;
+      uniforms.uMorph.value = values.morph;
+      uniforms.uWind.value.set(values.windX, values.windY);
+      uniforms.uOpacity.value = values.opacity;
+      uniforms.uShadow.value = values.shadow;
+      uniforms.uTime.value = values.phase;
+      updateLight();
+      cloud.count = totalLayers();
+      guideGroup.visible = values.guides;
+      updateLayerOrder(true);
+      updateGuides();
+      const stackHeight = ((totalLayers() - 1) * values.spacing).toFixed(1);
+      document.querySelector('#readout').textContent = `${values.layers} + ${values.underLayers} lower · ${stackHeight}u · ${values.noiseType}`;
+    }
+    function applyPreset(preset, resetView = true) {
+      Object.entries(preset).forEach(([id, value]) => setValue(id, value));
+      syncFromInputs();
+      if (resetView) resetCamera();
+    }
+    function exportPayload() {
+      values.phase = uniforms.uTime.value % 60;
+      return {
+        app: 'cloud-layer-explorer',
+        schemaVersion: 2,
+        savedAt: new Date().toISOString(),
+        settings: Object.fromEntries(Object.keys(defaults).map(key => [key, values[key]])),
+        camera: { position: camera.position.toArray(), target: controls.target.toArray() }
+      };
+    }
+    function exportSettings() {
+      const payload = exportPayload();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const stamp = payload.savedAt.replace(/[:.]/g, '-');
+      link.href = url;
+      link.download = `cloud-settings-${stamp}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      fileStatus.textContent = 'Settings exported.';
+    }
+    function safeNumber(value, input) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return null;
+      const min = input.min === '' ? -Infinity : Number(input.min);
+      const max = input.max === '' ? Infinity : Number(input.max);
+      return Math.min(max, Math.max(min, number));
+    }
+    function importSettingsObject(payload) {
+      if (!payload || typeof payload !== 'object') throw new Error('The JSON root must be an object.');
+      if (payload.app && payload.app !== 'cloud-layer-explorer') throw new Error('This file is for a different app.');
+      const incoming = payload.settings || payload;
+      for (const key of Object.keys(defaults)) {
+        if (!(key in incoming) || !controlsById[key]) continue;
+        const input = controlsById[key];
+        if (input.type === 'checkbox') setValue(key, Boolean(incoming[key]));
+        else if (input.tagName === 'SELECT') {
+          const valid = [...input.options].some(option => option.value === incoming[key]);
+          if (valid) setValue(key, incoming[key]);
+        } else {
+          const number = safeNumber(incoming[key], input);
+          if (number !== null) setValue(key, number);
+        }
+      }
+      syncFromInputs();
+      const cameraState = payload.camera;
+      if (cameraState && Array.isArray(cameraState.position) && Array.isArray(cameraState.target) && cameraState.position.length === 3 && cameraState.target.length === 3) {
+        const cameraValues = [...cameraState.position, ...cameraState.target].map(Number);
+        if (cameraValues.every(Number.isFinite)) {
+          camera.position.fromArray(cameraValues.slice(0, 3));
+          controls.target.fromArray(cameraValues.slice(3, 6));
+          controls.update();
+          updateLayerOrder(true);
+        }
+      }
+    }
+    Object.keys(controlsById).forEach(id => controlsById[id].addEventListener('input', syncFromInputs));
+    document.querySelector('#cumulusPreset').addEventListener('click', () => applyPreset(defaults));
+    document.querySelector('#stormPreset').addEventListener('click', () => applyPreset(storm));
+    document.querySelector('#resetView').addEventListener('click', resetCamera);
+    document.querySelector('#exportSettings').addEventListener('click', exportSettings);
+    document.querySelector('#importSettings').addEventListener('click', () => document.querySelector('#settingsFile').click());
+    document.querySelector('#settingsFile').addEventListener('change', async event => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        importSettingsObject(JSON.parse(await file.text()));
+        fileStatus.textContent = `Imported ${file.name}.`;
+      } catch (error) {
+        fileStatus.textContent = `Import failed: ${error.message}`;
+      } finally {
+        event.target.value = '';
+      }
+    });
+    applyPreset(defaults);
+
+    const clock = new THREE.Clock();
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion) { setValue('animate', false); syncFromInputs(); }
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = Math.min(clock.getDelta(), 0.05);
+      if (values.animate) {
+        uniforms.uTime.value += delta;
+        values.phase = uniforms.uTime.value % 60;
+        if (performance.now() - lastPhaseUi > 120) {
+          controlsById.phase.value = values.phase;
+          outputs.phase.textContent = format('phase', values.phase);
+          lastPhaseUi = performance.now();
+        }
+      }
+      if (values.lightOrbit && values.lightEnabled) {
+        values.lightAzimuth = THREE.MathUtils.euclideanModulo(values.lightAzimuth + delta * values.lightOrbitSpeed * 30 + 180, 360) - 180;
+        controlsById.lightAzimuth.value = values.lightAzimuth;
+        outputs.lightAzimuth.textContent = format('lightAzimuth', values.lightAzimuth);
+        updateLight();
+      }
+      controls.update();
+      updateLayerOrder();
+      renderer.render(scene, camera);
+    }
+    animate();
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+{
+  "asset_id": "cloud-layer-explorer",
+  "version": "0.3.0",
+  "route": "deterministic procedural",
+  "source_of_truth": "index.html shader and control state",
+  "intended_use": "browser visualizer for evaluating stacked alpha-masked cloud planes",
+  "target": "WebGL2-capable desktop browser",
+  "units": "scene units; starting dimensions mirror the C4D demo approximately",
+  "defaults": {
+    "layer_count": 14,
+    "lower_rounding_layers": 5,
+    "layer_spacing": 1.2,
+    "lower_edge_inset": 0.36,
+    "vertical_coherence": 1.6,
+    "noise_type": "fbm",
+    "octaves": 5,
+    "low_clip": 0.36,
+    "high_clip": 0.55,
+    "clip_ramp": 0.14,
+    "evolution_speed": 0.2,
+    "morph_amount": 0.46,
+    "light_type": "shader point light",
+    "light_azimuth_degrees": 55,
+    "light_elevation_degrees": 15,
+    "light_distance": 68,
+    "light_intensity": 1.7,
+    "ambient_fill": 0.34,
+    "light_color": "daylight"
+  },
+  "assumptions": [
+    "The browser artifact is a visual approximation, not a physically simulated volume.",
+    "The C4D Alpha Noise setup is represented with GLSL procedural noise rather than a byte-for-byte C4D shader clone.",
+    "All layers share one evolving 3D field and one time source so the cloud develops coherently.",
+    "Lower rounding layers are signed negative-height slices that contract in footprint and opacity toward the bottom.",
+    "Lighting is a density-aware shader approximation with one movable point source, not physical multiple scattering."
+  ],
+  "validation": [
+    "Controls update the visible cloud without page reload.",
+    "Layer count and spacing alter the stack geometry.",
+    "Noise type, octaves, clips, and clip ramp alter the alpha field.",
+    "Animation can be paused and resumed; reduced-motion preference is respected for initial playback.",
+    "Current settings and camera state can be exported as versioned JSON and imported again with bounded validation.",
+    "Light azimuth, elevation, distance, intensity, ambient fill, color, visibility, and orbit state are saved with the settings.",
+    "Moving the light above, beside, and below the cloud changes diffuse shading, density self-shadowing, and edge scattering.",
+    "Lower rounding layers visibly contract beneath the main stack without exceeding the 64-instance budget.",
+    "The visualizer remains usable at narrow browser widths."
+  ],
+  "status": "prototype"
+}
